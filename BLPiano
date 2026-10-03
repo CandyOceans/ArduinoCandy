@@ -1,0 +1,103 @@
+#include <BleKeyboard.h>
+
+BleKeyboard bleKeyboard("ESP32_升序蓝牙钢琴", "ESP32", 100);
+
+// ✅ GPIO已经从小到大排序，GPIO从小到大对应音高由低到高
+const int keyPins[] = {
+    4, 13, 14, 16, 17,
+    18, 19, 21, 22, 23,
+    25, 26, 27, 32, 33
+};
+
+// ✅ 一一对应：C4 → C6，音高依次升高
+const char keyChar[] = {
+    'A',   // GPIO4   C4 最低音
+    'S',   // GPIO13  D4
+    'D',   // GPIO14  E4
+    'F',   // GPIO16  F4
+    'G',   // GPIO17  G4
+    'H',   // GPIO18  A4
+    'J',   // GPIO19  B4
+    'K',   // GPIO21  C5
+    'L',   // GPIO22  D5
+    ';',   // GPIO23  E5
+    '\'',  // GPIO25  F5
+    '/',   // GPIO26  G5
+    '?',   // GPIO27  A5
+    ',',   // GPIO32  B5
+    '.'    // GPIO33  C6 最高音
+};
+
+bool keyPressed[15];
+int oldRead[15];
+const int debounceTime = 30;
+unsigned long lastTime[15];
+const unsigned long WATCHDOG_TIMEOUT = 800;
+
+void setup() {
+  Serial.begin(115200);
+  bleKeyboard.begin();
+
+  for(int i = 0; i < 15; i++){
+    pinMode(keyPins[i], INPUT_PULLUP);
+    keyPressed[i] = false;
+    oldRead[i] = HIGH;
+    lastTime[i] = 0;
+  }
+  Serial.println("✅ 启动成功：GPIO从小到大 = 音高从低到高");
+  Serial.println("网页预设选择：35‑Key（双排键盘映射）");
+}
+
+void loop() {
+  unsigned long now = millis();
+
+  //看门狗保护，防止按键卡死一直按下
+  for(int i = 0; i < 15; i++){
+    if(keyPressed[i] && (now - lastTime[i]) > WATCHDOG_TIMEOUT){
+      if(bleKeyboard.isConnected()){
+        bleKeyboard.releaseAll();
+      }
+      keyPressed[i] = false;
+      Serial.print("⚠️看门狗释放 Pin：");
+      Serial.println(keyPins[i]);
+    }
+  }
+
+  for(int i = 0; i < 15; i++){
+    int readVal = digitalRead(keyPins[i]);
+
+    // INPUT_PULLUP：LOW = 按下按键
+    if (readVal == LOW && keyPressed[i]==false){
+      if( now - lastTime[i] > debounceTime ){
+        if(bleKeyboard.isConnected()){
+          bleKeyboard.press(keyChar[i]);
+          Serial.print("Pin:");
+          Serial.print(keyPins[i]);
+          Serial.print(" | Note:");
+          Serial.println(keyChar[i]);
+        }
+        keyPressed[i] = true;
+        lastTime[i] = now;
+      }
+    }
+    // HIGH = 松开按键
+    if (readVal == HIGH && keyPressed[i]==true){
+      if( now - lastTime[i] > debounceTime ){
+        if(bleKeyboard.isConnected()){
+          bleKeyboard.release(keyChar[i]);
+          Serial.print("Pin:");
+          Serial.print(keyPins[i]);
+          Serial.print(" | Release:");
+          Serial.println(keyChar[i]);
+        }
+        keyPressed[i] = false;
+        lastTime[i] = now;
+      }
+    }
+
+    if(readVal != oldRead[i]){
+      oldRead[i] = readVal;
+      lastTime[i] = now;
+    }
+  }
+}
